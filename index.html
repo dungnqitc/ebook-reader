@@ -128,6 +128,9 @@ body {
   display: flex;
   flex-direction: column;
 }
+/* Quan trọng: hidden phải thắng display:flex ở trên, nếu không panel
+   sẽ luôn hiện và không thể đóng được. */
+.toc-panel[hidden] { display: none; }
 
 /* Lớp phủ mờ phía sau panel; bấm vào để đóng panel */
 .backdrop {
