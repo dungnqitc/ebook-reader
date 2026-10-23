@@ -35,14 +35,22 @@ html, body {
   color: var(--text);
   overflow: hidden;
 }
+/* Layout dọc: toolbar - reader(co giãn) - statusbar.
+   Dùng flex thay vì calc() để không phụ thuộc chiều cao toolbar
+   (toolbar có thể wrap nhiều dòng trên điện thoại). */
+body {
+  display: flex;
+  flex-direction: column;
+}
 
 /* Toolbar */
 .toolbar {
-  height: var(--toolbar-h);
+  flex: 0 0 auto;
   display: flex;
   align-items: center;
   justify-content: space-between;
   padding: 0 12px;
+  min-height: var(--toolbar-h);
   background: var(--surface);
   border-bottom: 1px solid var(--border);
   gap: 12px;
@@ -75,14 +83,18 @@ html, body {
 /* Reader area */
 .reader {
   position: relative;
-  height: calc(100% - var(--toolbar-h) - var(--status-h));
+  flex: 1 1 auto;
+  min-height: 0;
   display: flex;
   align-items: stretch;
+  overflow: hidden;
 }
 #viewer {
   flex: 1;
   height: 100%;
   margin: 0 56px;
+  min-width: 0;
+  overflow: hidden;
 }
 
 .nav-arrow {
@@ -105,16 +117,28 @@ html, body {
 /* TOC panel */
 .toc-panel {
   position: absolute;
-  top: var(--toolbar-h);
+  top: 0;
   left: 0;
-  bottom: var(--status-h);
+  bottom: 0;
   width: 300px;
+  max-width: 85vw;
   background: var(--surface);
   border-right: 1px solid var(--border);
-  z-index: 10;
+  z-index: 20;
   display: flex;
   flex-direction: column;
 }
+
+/* Lớp phủ mờ phía sau panel; bấm vào để đóng panel */
+.backdrop {
+  position: absolute;
+  top: 0;
+  left: 0; right: 0;
+  bottom: 0;
+  background: rgba(0,0,0,0.3);
+  z-index: 15;
+}
+.backdrop[hidden] { display: none; }
 .toc-header {
   display: flex;
   justify-content: space-between;
@@ -155,18 +179,48 @@ html, body {
 .lib-author { font-size: 12px; color: var(--muted); margin-top: 2px; }
 .library-msg { padding: 14px; font-size: 13px; color: var(--muted); }
 
+/* Bookmark panel */
+#bookmark-list { overflow-y: auto; padding: 8px 0; }
+.bookmark-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+}
+.bookmark-item .bm-go {
+  flex: 1;
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.bookmark-item .bm-go:hover { color: var(--accent); }
+.bookmark-item .bm-del {
+  cursor: pointer;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  font-size: 14px;
+  padding: 0 4px;
+}
+.bookmark-item .bm-del:hover { color: #c0392b; }
+#bm-btn.active { color: var(--accent); border-color: var(--accent); }
+
 /* Drop hint */
 .drop-hint {
   position: absolute;
-  top: var(--toolbar-h);
+  top: 0;
   left: 0; right: 0;
-  bottom: var(--status-h);
+  bottom: 0;
   display: flex;
   align-items: center;
   justify-content: center;
   text-align: center;
   color: var(--muted);
   pointer-events: none;
+  padding: 0 16px;
 }
 .drop-hint.dragover { background: rgba(59,110,165,0.08); outline: 2px dashed var(--accent); outline-offset: -12px; }
 .drop-hint .big { font-size: 22px; margin: 0 0 8px; }
@@ -175,7 +229,8 @@ html, body {
 
 /* Status bar */
 .statusbar {
-  height: var(--status-h);
+  flex: 0 0 auto;
+  min-height: var(--status-h);
   display: flex;
   align-items: center;
   padding: 0 14px;
@@ -183,6 +238,32 @@ html, body {
   border-top: 1px solid var(--border);
   font-size: 12px;
   color: var(--muted);
+}
+
+/* ---- Responsive: màn hình hẹp (điện thoại) ---- */
+@media (max-width: 600px) {
+  .toolbar {
+    flex-wrap: wrap;
+    padding: 6px 8px;
+    gap: 6px;
+  }
+  .toolbar-center {
+    order: 3;
+    flex-basis: 100%;
+    text-align: left;
+    font-size: 13px;
+  }
+  .btn { padding: 6px 10px; font-size: 13px; }
+  /* Thu hẹp vùng mũi tên để chừa tối đa chỗ cho chữ */
+  #viewer { margin: 0 40px; }
+  .nav-arrow { width: 40px; font-size: 36px; }
+  .toc-panel { width: 280px; }
+}
+
+/* Khi chiều cao thấp (xoay ngang điện thoại) vẫn dùng tốt */
+@media (max-height: 420px) {
+  .drop-hint .big { font-size: 18px; }
+  .drop-hint .small { margin-top: 8px; }
 }
   </style>
 </head>
@@ -193,6 +274,8 @@ html, body {
       <input type="file" id="file-input" accept=".epub" hidden />
       <button class="btn" id="library-btn">Thư viện</button>
       <button class="btn" id="toc-btn" disabled>Mục lục</button>
+      <button class="btn" id="bookmarks-btn" disabled>Dấu trang</button>
+      <button class="btn icon" id="bm-btn" title="Đánh dấu trang này" disabled>🔖</button>
     </div>
     <div class="toolbar-center">
       <span id="book-title">Chưa có sách</span>
@@ -204,35 +287,45 @@ html, body {
     </div>
   </header>
 
-  <aside class="toc-panel" id="toc-panel" hidden>
-    <div class="toc-header">
-      <span>Mục lục</span>
-      <button class="btn icon" id="toc-close">✕</button>
-    </div>
-    <nav id="toc-list"></nav>
-  </aside>
-
-  <aside class="toc-panel library-panel" id="library-panel" hidden>
-    <div class="toc-header">
-      <span>Thư viện sách</span>
-      <button class="btn icon" id="library-close">✕</button>
-    </div>
-    <div id="library-list"></div>
-  </aside>
-
   <main class="reader">
     <button class="nav-arrow left" id="prev-btn" title="Trang trước (←)" disabled>‹</button>
     <div id="viewer"></div>
     <button class="nav-arrow right" id="next-btn" title="Trang sau (→)" disabled>›</button>
-  </main>
 
-  <div class="drop-hint" id="drop-hint">
-    <div>
-      <p class="big">📖 Kéo thả file EPUB vào đây</p>
-      <p>hoặc bấm "Mở EPUB" / "Thư viện" ở trên</p>
-      <p class="small">Dùng phím ← → để chuyển trang</p>
+    <div class="drop-hint" id="drop-hint">
+      <div>
+        <p class="big">📖 Kéo thả file EPUB vào đây</p>
+        <p>hoặc bấm "Mở EPUB" / "Thư viện" ở trên</p>
+        <p class="small">Dùng phím ← → để chuyển trang</p>
+      </div>
     </div>
-  </div>
+
+    <div class="backdrop" id="backdrop" hidden></div>
+
+    <aside class="toc-panel" id="toc-panel" hidden>
+      <div class="toc-header">
+        <span>Mục lục</span>
+        <button class="btn icon" id="toc-close">✕</button>
+      </div>
+      <nav id="toc-list"></nav>
+    </aside>
+
+    <aside class="toc-panel library-panel" id="library-panel" hidden>
+      <div class="toc-header">
+        <span>Thư viện sách</span>
+        <button class="btn icon" id="library-close">✕</button>
+      </div>
+      <div id="library-list"></div>
+    </aside>
+
+    <aside class="toc-panel bookmark-panel" id="bookmark-panel" hidden>
+      <div class="toc-header">
+        <span>Dấu trang</span>
+        <button class="btn icon" id="bookmark-close">✕</button>
+      </div>
+      <div id="bookmark-list"></div>
+    </aside>
+  </main>
 
   <footer class="statusbar">
     <span id="progress">—</span>
@@ -263,11 +356,20 @@ html, body {
   const libraryPanel = document.getElementById("library-panel");
   const libraryClose = document.getElementById("library-close");
   const libraryList = document.getElementById("library-list");
+  const bookmarksBtn = document.getElementById("bookmarks-btn");
+  const bmBtn = document.getElementById("bm-btn");
+  const bookmarkPanel = document.getElementById("bookmark-panel");
+  const bookmarkClose = document.getElementById("bookmark-close");
+  const bookmarkList = document.getElementById("bookmark-list");
+  const backdrop = document.getElementById("backdrop");
 
   let book = null;
   let rendition = null;
   let fontSize = 100; // percent
+  let currentBookKey = null; // định danh sách đang đọc, dùng cho bookmark
+  let currentCfi = null;     // vị trí hiện tại
   const LOCATION_KEY = "ebook-reader:lastLocation";
+  const BOOKMARKS_KEY = "ebook-reader:bookmarks";
 
   // ---- Theme ----
   function applyTheme(theme) {
@@ -295,13 +397,16 @@ html, body {
 
     book = ePub(arrayBuffer);
     rendition = book.renderTo(viewer, {
-      width: "100%",
-      height: "100%",
+      // Dùng kích thước thật của #viewer để epub.js phân trang khớp khung,
+      // tránh tràn/cắt chữ. resizeToViewer() sẽ cập nhật khi khung đổi.
+      width: viewer.clientWidth,
+      height: viewer.clientHeight,
       flow: "paginated",
       spread: "none",
     });
 
     dropHint.setAttribute("hidden", "");
+    observeViewerSize();
 
     // Restore last location for this session, else start at beginning
     const saved = localStorage.getItem(LOCATION_KEY);
@@ -327,7 +432,9 @@ html, body {
 
     rendition.on("relocated", function (location) {
       localStorage.setItem(LOCATION_KEY, location.start.cfi);
+      currentCfi = location.start.cfi;
       updateProgress();
+      updateBookmarkButton();
       // Nav buttons reflect boundaries
       prevBtn.disabled = !!location.atStart;
       nextBtn.disabled = !!location.atEnd;
@@ -365,7 +472,7 @@ html, body {
       a.addEventListener("click", function (e) {
         e.preventDefault();
         rendition.display(item.href);
-        tocPanel.setAttribute("hidden", "");
+        closeAllPanels();
       });
       tocList.appendChild(a);
     });
@@ -373,7 +480,10 @@ html, body {
 
   // ---- Font size ----
   function applyFontSize() {
-    if (rendition) rendition.themes.fontSize(fontSize + "%");
+    if (!rendition) return;
+    rendition.themes.fontSize(fontSize + "%");
+    // Đổi cỡ chữ làm số trang thay đổi -> yêu cầu epub.js tính lại
+    setTimeout(resizeToViewer, 60);
   }
   fontInc.addEventListener("click", function () {
     fontSize = Math.min(fontSize + 10, 200);
@@ -397,20 +507,179 @@ html, body {
   }
   document.addEventListener("keyup", onKeyUp);
 
+  // ---- Quản lý panel: chỉ một panel mở tại một thời điểm ----
+  // Panel là overlay phủ lên (kèm backdrop), KHÔNG đẩy nội dung, nên kích
+  // thước vùng đọc không đổi khi mở/đóng panel -> không cần resize lại.
+  const allPanels = [tocPanel, libraryPanel, bookmarkPanel];
+
+  function closeAllPanels() {
+    allPanels.forEach(function (p) { p.hidden = true; });
+    backdrop.hidden = true;
+  }
+
+  function togglePanel(panel) {
+    const willOpen = panel.hidden;
+    allPanels.forEach(function (p) { p.hidden = true; });
+    panel.hidden = !willOpen;
+    backdrop.hidden = !willOpen;
+  }
+
+  backdrop.addEventListener("click", closeAllPanels);
+
+  // ---- Auto-fit: epub.js phân trang theo đúng kích thước #viewer ----
+  // Gọi khi cửa sổ đổi kích thước / xoay màn hình / đổi cỡ chữ.
+  function resizeToViewer() {
+    if (!rendition) return;
+    const w = viewer.clientWidth;
+    const h = viewer.clientHeight;
+    if (w <= 0 || h <= 0) return; // khung chưa có kích thước (vd đang ẩn)
+    try { rendition.resize(w, h); } catch (e) { /* no-op */ }
+  }
+
+  // Theo dõi kích thước thật của #viewer. ResizeObserver bắt mọi thay đổi
+  // (resize cửa sổ, xoay thiết bị, thanh địa chỉ mobile co/giãn...).
+  let _resizeTimer = null;
+  let _viewerObserver = null;
+  function observeViewerSize() {
+    if (_viewerObserver || typeof ResizeObserver === "undefined") return;
+    _viewerObserver = new ResizeObserver(function () {
+      // debounce để tránh gọi resize dồn dập khi đang kéo
+      if (_resizeTimer) clearTimeout(_resizeTimer);
+      _resizeTimer = setTimeout(resizeToViewer, 150);
+    });
+    _viewerObserver.observe(viewer);
+  }
+
+  // Fallback cho trình duyệt không hỗ trợ ResizeObserver
+  window.addEventListener("resize", function () {
+    if (typeof ResizeObserver !== "undefined") return;
+    if (_resizeTimer) clearTimeout(_resizeTimer);
+    _resizeTimer = setTimeout(resizeToViewer, 150);
+  });
+  // Xoay màn hình điện thoại
+  window.addEventListener("orientationchange", function () {
+    setTimeout(resizeToViewer, 300);
+  });
+
   // ---- TOC toggle ----
   tocBtn.addEventListener("click", function () {
-    tocPanel.hidden = !tocPanel.hidden;
+    togglePanel(tocPanel);
   });
-  tocClose.addEventListener("click", function () {
-    tocPanel.setAttribute("hidden", "");
-  });
+  tocClose.addEventListener("click", closeAllPanels);
 
   // ---- Controls enable/disable ----
   function enableControls(on) {
-    [prevBtn, nextBtn, tocBtn, fontInc, fontDec].forEach(function (el) {
-      el.disabled = !on;
+    [prevBtn, nextBtn, tocBtn, fontInc, fontDec, bookmarksBtn, bmBtn].forEach(
+      function (el) { el.disabled = !on; }
+    );
+  }
+
+  // ---- Bookmarks ----
+  // Lưu theo từng sách. currentBookKey định danh sách; nếu không có (mở file
+  // local) thì dùng tiêu đề sách làm khóa.
+  function getAllBookmarks() {
+    try {
+      return JSON.parse(localStorage.getItem(BOOKMARKS_KEY)) || {};
+    } catch (e) {
+      return {};
+    }
+  }
+  function saveAllBookmarks(all) {
+    localStorage.setItem(BOOKMARKS_KEY, JSON.stringify(all));
+  }
+  function bookKey() {
+    return currentBookKey || ("title:" + (bookTitle.textContent || "unknown"));
+  }
+  function getBookmarks() {
+    return getAllBookmarks()[bookKey()] || [];
+  }
+  function setBookmarks(list) {
+    const all = getAllBookmarks();
+    all[bookKey()] = list;
+    saveAllBookmarks(all);
+  }
+
+  function isBookmarked(cfi) {
+    return getBookmarks().some(function (b) { return b.cfi === cfi; });
+  }
+
+  function toggleBookmark() {
+    if (!rendition || !currentCfi) return;
+    const list = getBookmarks();
+    const idx = list.findIndex(function (b) { return b.cfi === currentCfi; });
+    if (idx >= 0) {
+      list.splice(idx, 1); // bỏ đánh dấu
+    } else {
+      let label = "Vị trí đã lưu";
+      if (book && book.locations && book.locations.length()) {
+        const pct = Math.round(
+          book.locations.percentageFromCfi(currentCfi) * 100
+        );
+        label = pct + "% — " + new Date().toLocaleString();
+      } else {
+        label = new Date().toLocaleString();
+      }
+      list.push({ cfi: currentCfi, label: label });
+    }
+    setBookmarks(list);
+    updateBookmarkButton();
+    if (!bookmarkPanel.hidden) renderBookmarks();
+  }
+
+  function updateBookmarkButton() {
+    if (!currentCfi) { bmBtn.classList.remove("active"); return; }
+    bmBtn.classList.toggle("active", isBookmarked(currentCfi));
+    bmBtn.title = isBookmarked(currentCfi)
+      ? "Bỏ đánh dấu trang này"
+      : "Đánh dấu trang này";
+  }
+
+  function renderBookmarks() {
+    bookmarkList.innerHTML = "";
+    const list = getBookmarks();
+    if (!list.length) {
+      const msg = document.createElement("p");
+      msg.className = "library-msg";
+      msg.textContent = "Chưa có dấu trang nào. Bấm 🔖 để đánh dấu trang đang đọc.";
+      bookmarkList.appendChild(msg);
+      return;
+    }
+    list.forEach(function (b, i) {
+      const item = document.createElement("div");
+      item.className = "bookmark-item";
+
+      const go = document.createElement("div");
+      go.className = "bm-go";
+      go.textContent = b.label; // textContent: an toàn trước XSS
+      go.addEventListener("click", function () {
+        rendition.display(b.cfi);
+        closeAllPanels();
+      });
+
+      const del = document.createElement("button");
+      del.className = "bm-del";
+      del.textContent = "🗑";
+      del.title = "Xoá dấu trang";
+      del.addEventListener("click", function () {
+        const cur = getBookmarks();
+        cur.splice(i, 1);
+        setBookmarks(cur);
+        renderBookmarks();
+        updateBookmarkButton();
+      });
+
+      item.appendChild(go);
+      item.appendChild(del);
+      bookmarkList.appendChild(item);
     });
   }
+
+  bmBtn.addEventListener("click", toggleBookmark);
+  bookmarksBtn.addEventListener("click", function () {
+    togglePanel(bookmarkPanel);
+    if (!bookmarkPanel.hidden) renderBookmarks();
+  });
+  bookmarkClose.addEventListener("click", closeAllPanels);
 
   // ---- Server library ----
   // Danh mục sách khai báo trong books/books.json. Vì static host (GitHub
@@ -418,8 +687,8 @@ html, body {
   const LIBRARY_INDEX = "books/books.json";
 
   function openLibraryPanel() {
-    libraryPanel.hidden = false;
-    loadLibraryIndex();
+    togglePanel(libraryPanel);
+    if (!libraryPanel.hidden) loadLibraryIndex();
   }
 
   let libraryLoaded = false;
@@ -504,8 +773,9 @@ html, body {
       })
       .then(function (buf) {
         localStorage.removeItem(LOCATION_KEY);
+        currentBookKey = "server:" + file;
         loadBook(buf);
-        libraryPanel.hidden = true;
+        closeAllPanels();
       })
       .catch(function (err) {
         bookTitle.textContent = "Chưa có sách";
@@ -513,12 +783,8 @@ html, body {
       });
   }
 
-  libraryBtn.addEventListener("click", function () {
-    libraryPanel.hidden ? openLibraryPanel() : (libraryPanel.hidden = true);
-  });
-  libraryClose.addEventListener("click", function () {
-    libraryPanel.hidden = true;
-  });
+  libraryBtn.addEventListener("click", openLibraryPanel);
+  libraryClose.addEventListener("click", closeAllPanels);
 
   // ---- File handling ----
   function handleFile(file) {
@@ -529,6 +795,7 @@ html, body {
     }
     // Reset saved location when opening a new file
     localStorage.removeItem(LOCATION_KEY);
+    currentBookKey = "local:" + file.name;
     const reader = new FileReader();
     reader.onload = function (e) { loadBook(e.target.result); };
     reader.onerror = function () { alert("Không đọc được file."); };
