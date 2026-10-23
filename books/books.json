@@ -1,1 +1,11 @@
+{
+  "books": [
+    {
+      "file": "sample.epub",
+      "title": "Tên sách ví dụ",
+      "author": "Tác giả"
+    }
+  ]
+}
+
 
